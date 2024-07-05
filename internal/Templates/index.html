@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Groupe tracker</title>
+
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -75,19 +76,28 @@
             border: 1px solid #ccc;
             border-radius: 2rem 0 0 2rem;
             font-size: 1rem;
-            background-color: #f8f8f8;
+            background-color: #333;
+            color: white;
+            outline: none;
+        }
+        .search-container {
+            position: relative;
+            flex-grow: 1;
+            display: flex;
         }
         .search-bar input[type="text"] {
-            flex-grow: 1;
+            width: 100%;
             padding: 0.5rem 1rem;
             border: 1px solid #ccc;
             border-left: none;
             border-right: none;
             font-size: 1rem;
+            outline: none;
         }
         .search-bar button {
             padding: 0.5rem 1rem;
-            background-color: #f8f8f8;
+            background-color: #333;
+            color: white;
             border: 1px solid #ccc;
             border-left: none;
             border-radius: 0 2rem 2rem 0;
@@ -98,16 +108,16 @@
             justify-content: center;
         }
         .search-bar button:hover {
-            background-color: #e0e0e0;
+            background-color: #555;
         }
         .search-bar button:active {
-            background-color: #d0d0d0;
+            background-color: #222;
         }
         .search-bar button img {
             width: 1.2rem;
             height: 1.2rem;
+            filter: invert(1);
         }
-
         .no-results {
             text-align: center;
             padding: 2rem;
@@ -118,6 +128,30 @@
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
             margin-top: 2rem;
         }
+        .autocomplete-items {
+            position: absolute;
+            border: 1px solid #d4d4d4;
+            border-bottom: none;
+            border-top: none;
+            z-index: 99;
+            top: 100%;
+            left: 0;
+            right: 0;
+        }
+        .autocomplete-items div {
+            padding: 10px;
+            cursor: pointer;
+            background-color: #fff;
+            border-bottom: 1px solid #d4d4d4;
+        }
+        .autocomplete-items div:hover {
+            background-color: #e9e9e9;
+        }
+        .autocomplete-active {
+            background-color: DodgerBlue !important;
+            color: #ffffff;
+        }
+
         @media (max-width: 1024px) {
             .card {
                 width: calc(33.33% - 10px);
@@ -140,19 +174,24 @@
             }
         }
     </style>
+
 </head>
 <body>
 <div class="container">
     <div class="search-bar">
-        <form action="/" method="get">
-            <select name="criteria">
-                <option value="all">All</option>
-                <option value="name">Name</option>
-                <option value="members">Members</option>
-                <option value="creationDate">Creation Date</option>
-                <option value="firstAlbum">First Album</option>
+        <form action="/" method="get" id="searchForm" autocomplete="off">
+            <select name="criteria" id="searchCriteria">
+                <option value="all" {{if or (eq .Criteria "all") (eq .Criteria "")}}selected{{end}}>All</option>
+                <option value="name" {{if eq .Criteria "name"}}selected{{end}}>Name</option>
+                <option value="members" {{if eq .Criteria "members"}}selected{{end}}>Members</option>
+                <option value="creationDate" {{if eq .Criteria "creationDate"}}selected{{end}}>Creation Date</option>
+                <option value="firstAlbum" {{if eq .Criteria "firstAlbum"}}selected{{end}}>First Album</option>
+                <option value="location" {{if eq .Criteria "location"}}selected{{end}}>Location</option>
             </select>
-            <input type="text" name="query" placeholder="Search..." value="{{.Query}}">
+            <div class="search-container">
+                <input type="text" id="searchInput" name="query" placeholder="Search..." value="{{.Query}}">
+                <div id="autocomplete-list" class="autocomplete-items"></div>
+            </div>
             <button type="submit">
                 <img src="https://img.icons8.com/material-outlined/24/000000/search--v1.png" alt="Search">
             </button>
@@ -164,6 +203,19 @@
     </div>
     {{else}}
     <div class="card-grid">
+
+        {{if .FilteredArts}}
+        {{range .FilteredArts}}
+        <div class="card" onclick="window.location.href='{{$.FullURL}}?brand={{.ID}}'">
+            <div class="card-image">
+                <img src="{{.Image}}" alt="{{.Name}}">
+            </div>
+            <h2 class="card-title">
+                {{.Name}}
+            </h2>
+        </div>
+        {{end}}
+        {{else}}
         {{range .Artists}}
         <div class="card" onclick="window.location.href='{{$.FullURL}}?brand={{.ID}}'">
             <div class="card-image">
@@ -174,9 +226,157 @@
             </h2>
         </div>
         {{end}}
-    </div>
+        {{end}}
     {{end}}
+    </div>
+
 </div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const suggestions = {
+            name: [],
+            members: [],
+            location: [],
+            creationDate: [],
+            firstAlbum: []
+        };
+
+        {{range .Artists}}
+        suggestions.name.push("{{.Name}}");
+        {{range .Members}}
+        suggestions.members.push("{{.}}");
+        {{end}}
+        suggestions.creationDate.push("{{.CreationDate}}");
+        suggestions.firstAlbum.push("{{.FirstAlbum}}");
+        {{end}}
+
+        {{range .Locations}}
+        suggestions.location.push("{{.}}");
+        {{end}}
+
+        for (let key in suggestions) {
+            suggestions[key] = [...new Set(suggestions[key])].sort();
+        }
+
+        function autocomplete(inp, arr) {
+            var currentFocus;
+            inp.addEventListener("input", function(e) {
+                var a, b, i, val = this.value;
+                closeAllLists();
+                if (!val) { return false; }
+                currentFocus = -1;
+                a = document.createElement("DIV");
+                a.setAttribute("id", this.id + "autocomplete-list");
+                a.setAttribute("class", "autocomplete-items");
+                this.parentNode.appendChild(a);
+                for (i = 0; i < arr.length; i++) {
+                    if (arr[i].substr(0, val.length).toUpperCase() == val.toUpperCase()) {
+                        b = document.createElement("DIV");
+                        b.innerHTML = "<strong>" + arr[i].substr(0, val.length) + "</strong>";
+                        b.innerHTML += arr[i].substr(val.length);
+                        b.innerHTML += "<input type='hidden' value='" + arr[i] + "'>";
+                        b.addEventListener("click", function(e) {
+                            inp.value = this.getElementsByTagName("input")[0].value;
+                            closeAllLists();
+                        });
+                        a.appendChild(b);
+                    }
+                }
+            });
+
+            inp.addEventListener("keydown", function(e) {
+                var x = document.getElementById(this.id + "autocomplete-list");
+                if (x) x = x.getElementsByTagName("div");
+                if (e.keyCode == 40) {
+                    currentFocus++;
+                    addActive(x);
+                } else if (e.keyCode == 38) {
+                    currentFocus--;
+                    addActive(x);
+                } else if (e.keyCode == 13) {
+                    e.preventDefault();
+                    if (currentFocus > -1) {
+                        if (x) x[currentFocus].click();
+                    }
+                }
+            });
+
+            function addActive(x) {
+                if (!x) return false;
+                removeActive(x);
+                if (currentFocus >= x.length) currentFocus = 0;
+                if (currentFocus < 0) currentFocus = (x.length - 1);
+                x[currentFocus].classList.add("autocomplete-active");
+            }
+
+            function removeActive(x) {
+                for (var i = 0; i < x.length; i++) {
+                    x[i].classList.remove("autocomplete-active");
+                }
+            }
+
+            function closeAllLists(elmnt) {
+                var x = document.getElementsByClassName("autocomplete-items");
+                for (var i = 0; i < x.length; i++) {
+                    if (elmnt != x[i] && elmnt != inp) {
+                        x[i].parentNode.removeChild(x[i]);
+                    }
+                }
+            }
+
+            document.addEventListener("click", function (e) {
+                closeAllLists(e.target);
+            });
+        }
+
+        const searchInput = document.getElementById("searchInput");
+        const searchCriteria = document.getElementById("searchCriteria");
+        const searchForm = document.getElementById('searchForm');
+
+        function updateAutocomplete() {
+            const selectedCriteria = searchCriteria.value;
+            if (suggestions[selectedCriteria]) {
+                autocomplete(searchInput, suggestions[selectedCriteria]);
+            } else if (selectedCriteria === 'all') {
+                const allSuggestions = Object.values(suggestions).flat();
+                autocomplete(searchInput, [...new Set(allSuggestions)].sort());
+            } else {
+                autocomplete(searchInput, []);
+            }
+        }
+
+        searchCriteria.addEventListener("change", updateAutocomplete);
+
+        // Initialize autocomplete
+        updateAutocomplete();
+
+        // New form submission handling
+        searchForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            console.log("Form submitted");
+            this.submit();
+        });
+
+        // Optional: Specific handling for Enter key in search input
+        searchInput.addEventListener('keyup', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                searchForm.dispatchEvent(new Event('submit'));
+            }
+        });
+
+        // add on body keypress event
+        document.body.addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                searchForm.dispatchEvent(new Event('submit'));
+            }
+        });
+
+        console.log("Search script initialized");
+    });
+</script>
 
 </body>
 </html>

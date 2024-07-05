@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"groupe-tracker/internal/models"
 	"groupe-tracker/internal/services"
 	"html/template"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -17,9 +19,32 @@ func HomeHandler(apiClient *services.APIClient) http.HandlerFunc {
 		}
 
 		artists, err := apiClient.GetAllArtists()
+
 		if err != nil {
 			ErrorHandler(w, http.StatusInternalServerError, "Failed to fetch data from API")
 			return
+		}
+
+		var flatLocations []string
+
+		for _, art := range artists {
+			data := art.LocationData
+			if locations, ok := data.([]interface{}); ok {
+				for _, loc := range locations {
+					if strLoc, ok := loc.(string); ok {
+						exist := false
+						for _, loc := range flatLocations {
+							if loc == strLoc {
+								exist = true
+								break
+							}
+						}
+						if !exist {
+							flatLocations = append(flatLocations, strLoc)
+						}
+					}
+				}
+			}
 		}
 
 		if brandID := r.URL.Query().Get("brand"); brandID != "" {
@@ -32,14 +57,11 @@ func HomeHandler(apiClient *services.APIClient) http.HandlerFunc {
 		query := r.URL.Query().Get("query")
 		noResults := false
 
-		if criteria != "" && query != "" {
-			artists = filterArtists(artists, criteria, query)
-			noResults = len(artists) == 0
-		}
+		var filteredArts []models.Artist
 
-		if len(r.URL.Query()) > 0 && (criteria == "" || query == "") {
-			ErrorHandler(w, http.StatusBadRequest, "Wrong query or criteria")
-			return
+		if criteria != "" && query != "" {
+			filteredArts = filterArtists(artists, criteria, query)
+			noResults = len(artists) == 0
 		}
 
 		tmpl, err := template.ParseFiles("internal/templates/index.html")
@@ -51,15 +73,22 @@ func HomeHandler(apiClient *services.APIClient) http.HandlerFunc {
 		fullURL := "http://" + r.Host
 
 		data := struct {
-			Artists   []models.Artist
-			FullURL   string
-			NoResults bool
-			Query     string
+			Artists      []models.Artist
+			FilteredArts []models.Artist
+			FullURL      string
+			NoResults    bool
+			Query        string
+			Criteria     string
+			Locations    []string
+			filteredArts []models.Artist
 		}{
-			Artists:   artists,
-			FullURL:   fullURL,
-			NoResults: noResults,
-			Query:     query,
+			Artists:      artists,
+			FullURL:      fullURL,
+			NoResults:    noResults,
+			Query:        query,
+			Criteria:     criteria,
+			Locations:    flatLocations,
+			FilteredArts: filteredArts,
 		}
 
 		if err := tmpl.Execute(w, data); err != nil {
@@ -78,7 +107,8 @@ func filterArtists(artists []models.Artist, criteria, query string) []models.Art
 		switch criteria {
 		case "all":
 			//Search by all
-			match = strings.Contains(strings.ToLower(artist.Name), query) || strings.Contains(strings.ToLower(artist.FirstAlbum), query) || strings.Contains(strings.ToLower(string(artist.CreationDate)), query)
+			match = strings.Contains(strings.ToLower(artist.Name), query) || strings.Contains(strings.ToLower(artist.FirstAlbum), query) || strings.Contains(strconv.Itoa(int(artist.CreationDate)), query)
+
 			for _, member := range artist.Members {
 				if strings.Contains(strings.ToLower(member), query) {
 					match = true
@@ -94,10 +124,26 @@ func filterArtists(artists []models.Artist, criteria, query string) []models.Art
 					break
 				}
 			}
+
 		case "creationDate":
-			match = strings.Contains(strings.ToLower(string(artist.CreationDate)), query)
+			match = strings.Contains(strconv.Itoa(int(artist.CreationDate)), query)
+			break
 		case "firstAlbum":
 			match = strings.Contains(strings.ToLower(artist.FirstAlbum), query)
+			break
+		case "location":
+			fmt.Println("In location")
+			if locations, ok := artist.LocationData.([]interface{}); ok {
+				for _, loc := range locations {
+					if strLoc, ok := loc.(string); ok {
+						if strings.Contains(strings.ToLower(strLoc), query) {
+							match = true
+							break
+						}
+					}
+				}
+
+			}
 		}
 
 		if match {

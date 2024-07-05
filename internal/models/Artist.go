@@ -10,6 +10,7 @@ type Artist struct {
 	Locations    string   `json:"locations"`
 	ConcertDates string   `json:"concertDates"`
 	Relations    string   `json:"relations"`
+	LocationData interface{}
 }
 
 type LocationData struct {
